@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<title>Painel CLT</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 16 16%22%3E%3Crect width=%2216%22 height=%2216%22 rx=%223%22 fill=%22%233d6fdb%22/%3E%3C/svg%3E">
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #f7f6f2; --panel: #ffffff; --fg: #1f1e1c; --muted: #6a6862; --line: #e4e1d8;
+    --accent: #3d6fdb; --accent-fg: #ffffff; --bad: #c2412d;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #1b1a18; --panel: #252421; --fg: #ecebe6; --muted: #a6a49d; --line: #393834; --accent: #6b93ee; --accent-fg: #10131a; --bad: #ef7a63; }
+  }
+  [hidden] { display: none !important; }
+  html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--fg);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; -webkit-text-size-adjust: 100%; }
+  body { display: grid; place-items: center; min-height: 100vh; padding: 16px; box-sizing: border-box; }
+  main { width: 100%; max-width: 360px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+    padding: 28px 24px; box-sizing: border-box; }
+  h1 { margin: 0 0 4px; font-size: 22px; font-weight: 650; letter-spacing: -.01em; }
+  .sub { margin: 0 0 20px; color: var(--muted); font-size: 14px; line-height: 1.45; }
+  label { display: block; font-size: 13px; color: var(--muted); margin: 0 0 6px; }
+  input { width: 100%; box-sizing: border-box; font: inherit; font-size: 16px; padding: 10px 12px; border-radius: 8px;
+    border: 1px solid var(--line); background: var(--bg); color: var(--fg); margin: 0 0 14px; }
+  input:focus { outline: 2px solid var(--accent); outline-offset: 1px; border-color: transparent; }
+  button { width: 100%; font: inherit; font-size: 15px; font-weight: 600; padding: 11px 12px; border: 0; border-radius: 8px;
+    background: var(--accent); color: var(--accent-fg); cursor: pointer; }
+  button[disabled] { opacity: .6; cursor: progress; }
+  .msg { min-height: 20px; margin: 12px 0 0; font-size: 13px; line-height: 1.45; color: var(--muted); }
+  .msg.erro { color: var(--bad); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Painel CLT</h1>
+  <p class="sub" id="sub">Carregando…</p>
+  <form id="form" hidden autocomplete="on">
+    <input type="text" name="username" value="painel" autocomplete="username" hidden aria-hidden="true">
+    <label for="senha" id="rotulo">Senha</label>
+    <input type="password" id="senha" name="password" autocomplete="current-password" required minlength="8">
+    <div id="caixa2" hidden>
+      <label for="senha2">Repita a senha</label>
+      <input type="password" id="senha2" autocomplete="new-password" minlength="8">
+    </div>
+    <button type="submit" id="botao">Entrar</button>
+  </form>
+  <p class="msg" id="msg" role="status" aria-live="polite"></p>
+</main>
+<script>
+(function () {
+  'use strict';
+  // Chave pública do Supabase (feita para ficar em página; sozinha não lê nada: os dados só saem com a sessão da senha)
+  var SUPA = { url: 'https://ctnrkqamrwdabvgpquyi.supabase.co', chave: 'sb_publishable_me_Y7i_XljjoRkGvTmjEfg_QkD_8fwn' };
+  var CHAVE_SESSAO = 'painel_clt_sessao';
+  var $ = function (id) { return document.getElementById(id); };
+  var modo = 'entrar';
+
+  function rpc(nome, corpo) {
+    return fetch(SUPA.url + '/rest/v1/rpc/' + nome, {
+      method: 'POST', cache: 'no-store',
+      headers: { apikey: SUPA.chave, 'Content-Type': 'application/json' },
+      body: JSON.stringify(corpo || {})
+    }).then(function (r) {
+      return r.json().catch(function () { return null; }).then(function (j) {
+        if (!r.ok) { var e = new Error((j && j.message) || ('HTTP ' + r.status)); e.status = r.status; throw e; }
+        return j;
+      });
+    });
+  }
+  function lerSessao() {
+    try { var s = JSON.parse(localStorage.getItem(CHAVE_SESSAO) || 'null'); return s && s.token ? s : null; } catch (e) { return null; }
+  }
+  function gravarSessao(j) {
+    var s = { url: SUPA.url, chave: SUPA.chave, token: j.token, expira_em: j.expira_em };
+    try { localStorage.setItem(CHAVE_SESSAO, JSON.stringify(s)); } catch (e) { /* sem armazenamento: a página abre, mas pede a senha de novo ao recarregar */ }
+    return s;
+  }
+  function limparSessao() { try { localStorage.removeItem(CHAVE_SESSAO); } catch (e) { /* nada */ } }
+  function msg(t, erro) { $('msg').textContent = t || ''; $('msg').className = 'msg' + (erro ? ' erro' : ''); }
+
+  function abrirPainel(s) {
+    msg('Abrindo o painel…');
+    return rpc('painel_pagina', { p_token: s.token }).then(function (html) {
+      if (typeof html !== 'string' || !html) throw new Error('página vazia');
+      document.open();
+      document.write(html);
+      document.close();
+    });
+  }
+
+  function mostrar(m, texto) {
+    modo = m;
+    $('sub').textContent = texto;
+    $('form').hidden = (m === 'fechado');
+    $('caixa2').hidden = (m !== 'definir');
+    $('senha2').required = (m === 'definir');
+    $('rotulo').textContent = m === 'definir' ? 'Nova senha (mínimo 8 caracteres)' : 'Senha';
+    $('senha').autocomplete = m === 'definir' ? 'new-password' : 'current-password';
+    $('botao').textContent = m === 'definir' ? 'Criar senha e entrar' : 'Entrar';
+    if (m !== 'fechado') setTimeout(function () { $('senha').focus(); }, 0);
+  }
+
+  function iniciar() {
+    rpc('painel_estado').then(function (e) {
+      if (e && e.senha_definida) mostrar('entrar', 'Acesso restrito. Digite a senha do painel.');
+      else if (e && e.cadastro_aberto) mostrar('definir', 'Primeiro acesso: crie a senha do painel. Ela fica guardada só como resumo; ninguém consegue lê-la.');
+      else mostrar('fechado', 'O acesso ao painel ainda não foi liberado.');
+    }).catch(function (e) {
+      mostrar('entrar', 'Acesso restrito. Digite a senha do painel.');
+      msg('Não consegui falar com o servidor (' + e.message + '). Tente de novo em instantes.', true);
+    });
+  }
+
+  $('form').addEventListener('submit', function (ev) {
+    ev.preventDefault();
+    var senha = $('senha').value;
+    if (modo === 'definir' && senha !== $('senha2').value) { msg('As duas senhas não são iguais.', true); return; }
+    $('botao').disabled = true;
+    msg(modo === 'definir' ? 'Criando a senha…' : 'Conferindo…');
+    rpc(modo === 'definir' ? 'painel_definir_senha' : 'painel_entrar', modo === 'definir' ? { p_nova: senha } : { p_senha: senha })
+      .then(function (j) {
+        if (!j || !j.ok || !j.token) { throw new Error('Senha incorreta.'); }
+        $('senha').value = ''; $('senha2').value = '';
+        return abrirPainel(gravarSessao(j));
+      })
+      .catch(function (e) {
+        $('botao').disabled = false;
+        if (e.status === 409 && modo === 'definir') { iniciar(); }
+        msg(e.message === 'Senha incorreta.' ? e.message : ('Não deu: ' + e.message), true);
+      });
+  });
+
+  var s = lerSessao();
+  if (s && (!s.expira_em || new Date(s.expira_em) > new Date())) {
+    abrirPainel(s).catch(function () { limparSessao(); iniciar(); });
+  } else {
+    limparSessao();
+    iniciar();
+  }
+})();
+</script>
+</body>
+</html>
